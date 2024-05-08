@@ -1,0 +1,115 @@
+//@version=5
+//strategy("Simple pull back strategy", overlay = true, initial_capital = 50000, default_qty_type = strategy.percent_of_equity, default_qty_value = 90, commission_type = strategy.commission.cash_per_contract, commission_value = 0.005 )
+indicator("Momentum Study", overlay=true)
+
+var bool flagBaseFound = false
+var bool entryFound = false
+var bool lookForEntry = false
+var int barsSinceFlagTop = 0
+var int targetPercentage = 10
+
+findFlagPole(percentGain) =>
+    float overallGain = 0.0
+    float redClose = 0.0
+    int redIndex = 0
+    bool redCandleFound = false
+    // if the candle is green, get previous run of green candles
+    if (close > open)
+        // get all previous green candles
+        idx = 1
+        while (redCandleFound == false)
+            // if previous candle is green
+            if close[idx] > open[idx]
+                //overallGain := overallGain + (open[idx] + close[idx - 1])
+                idx += 1
+            else
+                // get close of this red candle
+                redClose := close[idx]
+                redIndex := idx
+                // red candle found, calc gain using prev candle to current
+                overallGain := close - open[redIndex - 1]
+                // exit loop
+                redCandleFound := true
+    
+        // calc 10 percent
+        log.info(str.format('redClose: {0}', redClose))
+        tenPercent = (redClose / 100) * percentGain
+        log.info(str.format('tenPercent: {0}', tenPercent))
+
+        // return result
+        if (overallGain >= tenPercent)
+            [true, overallGain, redIndex-1, bar_index]
+        else
+            [false, overallGain, redIndex-1, bar_index]
+    else // current is red candle
+        [false, overallGain, redIndex-1, bar_index]
+
+findBullFlagEntry() =>
+    // if previous candle was part of flag pole its not an entry
+    if close > high[1] // should be -- if close > high[1] --
+        label.new(bar_index, high, 'bull flag entry', yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
+        true
+    else
+        false
+
+// if candle is now red stop looking for pole and look for entry
+if (close < open and flagBaseFound and lookForEntry == false)
+    lookForEntry := true
+    log.info('lookForEntry should be true')
+    
+// if not looking for entry, start looking for flag
+if (lookForEntry == false)
+    log.info('finding pole')
+    [foundPole, gain, flagBase, flagTop] = findFlagPole(percentGain = targetPercentage)
+    if (foundPole)
+        //if a flag base was already found move flag top labels
+        if (flagBaseFound)
+            log.info('moving flag pole top')
+            flagTopLabel = array.get(label.all, 0)
+            label.set_xy(flagTopLabel, flagTop, high)
+            label.set_text(flagTopLabel, str.format('flag top {0}',gain))
+        // if a base was not found, we now have one
+        else
+            log.info('found flag base')
+            flagTopLabel = label.new(flagTop, high, str.format('flag top {0}',gain), yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
+            flagBaseLabel = label.new(bar_index[flagBase], low, 'flag base', yloc=yloc.belowbar, style=label.style_arrowup, color=color.green, textcolor=color.white)
+            flagBaseFound := true
+            log.info(str.format('barsSinceFlagTop: {0}', barsSinceFlagTop))
+
+// flag found, look for entry
+else if (flagBaseFound and lookForEntry and entryFound == false)
+    log.info('finding entry')
+    barsSinceFlagTop := barsSinceFlagTop + 1
+    //wait for dip after flag base
+    if (barsSinceFlagTop >= 1 and barsSinceFlagTop < 8)
+        // bullflag found already, now find entry
+        entryFound := findBullFlagEntry()
+        log.info(str.format('entry found: {0}', entryFound))
+    // entry found or took too long, reset and look for next flag
+    if (barsSinceFlagTop >= 8 or entryFound)
+        log.info('resetting and looking for flag')
+        flagBaseFound := false
+        entryFound := false
+        lookForEntry := false
+        barsSinceFlagTop := 0
+
+
+
+
+// plotshape(
+//  result,
+//  title='entry',
+//  location =location.belowbar, 
+//  color=color.green, style=shape.triangleup, 
+//  text='flag base', 
+//  textcolor=color.white)
+
+// longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+// if (longCondition)
+//     strategy.entry("My Long Entry Id", strategy.long)
+
+// shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+// if (shortCondition)
+//     strategy.entry("My Short Entry Id", strategy.short)
+
+plot(close)
