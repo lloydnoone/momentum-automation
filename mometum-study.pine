@@ -1,3 +1,6 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Spoonobi
+
 //@version=5
 //strategy("Simple pull back strategy", overlay = true, initial_capital = 50000, default_qty_type = strategy.percent_of_equity, default_qty_value = 90, commission_type = strategy.commission.cash_per_contract, commission_value = 0.005 )
 indicator("Momentum Study", overlay=true)
@@ -6,12 +9,12 @@ var bool flagBaseFound = false
 var bool entryFound = false
 var bool lookForEntry = false
 var int barsSinceFlagTop = 0
-var int targetPercentage = 10
+var int targetPercentage = 6
 
 findFlagPole(percentGain) =>
     float overallGain = 0.0
     float redClose = 0.0
-    int redIndex = 0
+    int redIndexOffset = 0
     bool redCandleFound = false
     // if the candle is green, get previous run of green candles
     if (close > open)
@@ -25,24 +28,25 @@ findFlagPole(percentGain) =>
             else
                 // get close of this red candle
                 redClose := close[idx]
-                redIndex := idx
+                redIndexOffset := idx
                 // red candle found, calc gain using prev candle to current
-                overallGain := close - open[redIndex - 1]
+                overallGain := close - open[redIndexOffset - 1]
                 // exit loop
                 redCandleFound := true
     
         // calc 10 percent
-        log.info(str.format('redClose: {0}', redClose))
         tenPercent = (redClose / 100) * percentGain
-        log.info(str.format('tenPercent: {0}', tenPercent))
+        log.info(str.format('bar_index: {0}', bar_index))
+        log.info(str.format('redIndexOffset: {0}', redIndexOffset-1))
+        //log.info(str.format('bar_index[redIndex-1]: {0}', bar_index[redIndexOffset-1]))
 
-        // return result
+        // return result [foundPole, gain, flagBase, flagTop]
         if (overallGain >= tenPercent)
-            [true, overallGain, redIndex-1, bar_index]
+            [true, overallGain, bar_index - (redIndexOffset-1), bar_index]
         else
-            [false, overallGain, redIndex-1, bar_index]
+            [false, overallGain, bar_index - (redIndexOffset-1), bar_index]
     else // current is red candle
-        [false, overallGain, redIndex-1, bar_index]
+        [false, overallGain, bar_index - (redIndexOffset-1), bar_index]
 
 findBullFlagEntry() =>
     // if previous candle was part of flag pole its not an entry
@@ -51,6 +55,20 @@ findBullFlagEntry() =>
         true
     else
         false
+
+labelFlagTop(int flagTop, float gain) =>
+    log.info('moving flag pole top')
+    flagTopLabel = array.get(label.all, 0)
+    label.set_xy(flagTopLabel, flagTop, high)
+    label.set_text(flagTopLabel, str.format('flag top {0}',gain))
+
+labelFlagBase(int flagTop, int flagBase, float gain) =>
+    log.info('found flag base')
+    log.info(str.format('this flag base: {0}', flagBase))
+    log.info(str.format('this bar_index: {0}', bar_index))
+    flagTopLabel = label.new(flagTop, high, str.format('flag top {0}',gain), yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
+    flagBaseLabel = label.new(flagBase, low, 'flag base', yloc=yloc.belowbar, style=label.style_arrowup, color=color.green, textcolor=color.white)
+    log.info(str.format('barsSinceFlagTop: {0}', barsSinceFlagTop))
 
 // if candle is now red stop looking for pole and look for entry
 if (close < open and flagBaseFound and lookForEntry == false)
@@ -64,17 +82,11 @@ if (lookForEntry == false)
     if (foundPole)
         //if a flag base was already found move flag top labels
         if (flagBaseFound)
-            log.info('moving flag pole top')
-            flagTopLabel = array.get(label.all, 0)
-            label.set_xy(flagTopLabel, flagTop, high)
-            label.set_text(flagTopLabel, str.format('flag top {0}',gain))
-        // if a base was not found, we now have one
+            labelFlagTop(flagTop, gain)
+        // if a base was not found, we now have one, set label for it
         else
-            log.info('found flag base')
-            flagTopLabel = label.new(flagTop, high, str.format('flag top {0}',gain), yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
-            flagBaseLabel = label.new(bar_index[flagBase], low, 'flag base', yloc=yloc.belowbar, style=label.style_arrowup, color=color.green, textcolor=color.white)
+            labelFlagBase(flagTop, flagBase, gain)
             flagBaseFound := true
-            log.info(str.format('barsSinceFlagTop: {0}', barsSinceFlagTop))
 
 // flag found, look for entry
 else if (flagBaseFound and lookForEntry and entryFound == false)
@@ -92,24 +104,3 @@ else if (flagBaseFound and lookForEntry and entryFound == false)
         entryFound := false
         lookForEntry := false
         barsSinceFlagTop := 0
-
-
-
-
-// plotshape(
-//  result,
-//  title='entry',
-//  location =location.belowbar, 
-//  color=color.green, style=shape.triangleup, 
-//  text='flag base', 
-//  textcolor=color.white)
-
-// longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
-// if (longCondition)
-//     strategy.entry("My Long Entry Id", strategy.long)
-
-// shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
-// if (shortCondition)
-//     strategy.entry("My Short Entry Id", strategy.short)
-
-plot(close)
