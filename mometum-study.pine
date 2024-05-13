@@ -2,14 +2,14 @@
 // © Spoonobi
 
 //@version=5
-strategy("Momentum strategy", overlay = true, initial_capital = 50000, default_qty_type = strategy.percent_of_equity, default_qty_value = 90, commission_type = strategy.commission.cash_per_contract, commission_value = 0.005 )
+strategy("Momentum strategy", overlay=true, process_orders_on_close=true, initial_capital=50000, default_qty_type=strategy.percent_of_equity, default_qty_value=90, commission_type=strategy.commission.cash_per_contract, commission_value=0.005 )
 
 var bool flagBaseFound = false
 var bool entryFound = false
 var bool lookForEntry = false
 var int barsSinceFlagTop = 0
-var int targetPercentage = 10
-var int retracementPercentage = 40
+var float targetPercentage = 6.0
+var float retracementPercentage = 40.0
 var float maxRetracementPoint = 0.0
 var int maxFlagLength = 8
 
@@ -67,21 +67,23 @@ findBullFlagEntry() =>
         false
 
 labelFlagTop(int flagTop, float gain) =>
-    log.info('moving flag pole top')
     flagTopLabel = array.get(label.all, 0)
     label.set_xy(flagTopLabel, flagTop, high)
     label.set_text(flagTopLabel, str.format('flag top {0}',gain))
 
 labelFlagBase(int flagTop, int flagBase, float gain) =>
-    log.info('found flag base')
     flagTopLabel = label.new(flagTop, high, str.format('flag top {0}',gain), yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
     flagBaseLabel = label.new(flagBase, low, 'flag base', yloc=yloc.belowbar, style=label.style_arrowup, color=color.green, textcolor=color.white)
 
 calculateMaxRetracementPoint(int flagTop, int flagBase) =>
-    // finde the diff between flag base and top
-    diff = close[flagTop] - open[flagBase]
-
-    close[flagTop] - ((retracementPercentage/100) * diff)
+    // find the diff between flag base and top
+    log.info('flagTop: {0}', high[flagTop])
+    log.info('flagBase: {0}', low[flagBase])
+    diff = high[flagTop] - low[flagBase]
+    log.info('diff: {0}', diff)
+    // return retracement point
+    log.info('retracement in calc: {0}', retracementPercentage/100)
+    high[flagTop] - ((retracementPercentage/100) * diff)
 
 // if candle is now red stop looking for pole and look for entry
 if (close < open and flagBaseFound and lookForEntry == false)
@@ -95,6 +97,7 @@ if (lookForEntry == false)
         if (flagBaseFound)
             labelFlagTop(flagTop, gain)
             maxRetracementPoint := calculateMaxRetracementPoint(flagTop, flagBase)
+            log.info('maxRetracementPoint: {0}', maxRetracementPoint)
         // if a base was not found, we now have one, set label for it
         else
             labelFlagBase(flagTop, flagBase, gain)
