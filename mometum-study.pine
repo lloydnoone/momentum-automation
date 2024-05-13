@@ -2,14 +2,18 @@
 // © Spoonobi
 
 //@version=5
-//strategy("Simple pull back strategy", overlay = true, initial_capital = 50000, default_qty_type = strategy.percent_of_equity, default_qty_value = 90, commission_type = strategy.commission.cash_per_contract, commission_value = 0.005 )
-indicator("Momentum Study", overlay=true)
+strategy("Momentum strategy", overlay = true, initial_capital = 50000, default_qty_type = strategy.percent_of_equity, default_qty_value = 90, commission_type = strategy.commission.cash_per_contract, commission_value = 0.005 )
 
 var bool flagBaseFound = false
 var bool entryFound = false
 var bool lookForEntry = false
 var int barsSinceFlagTop = 0
-var int targetPercentage = 6
+var int targetPercentage = 10
+var int retracementPercentage = 40
+var float maxRetracementPoint = 0.0
+var int maxFlagLength = 8
+
+vwap = ta.vwap(open)
 
 findFlagPole(percentGain) =>
     float overallGain = 0.0
@@ -36,9 +40,6 @@ findFlagPole(percentGain) =>
     
         // calc 10 percent
         tenPercent = (redClose / 100) * percentGain
-        log.info(str.format('bar_index: {0}', bar_index))
-        log.info(str.format('redIndexOffset: {0}', redIndexOffset-1))
-        //log.info(str.format('bar_index[redIndex-1]: {0}', bar_index[redIndexOffset-1]))
 
         // return result [foundPole, gain, flagBase, flagTop]
         if (overallGain >= tenPercent)
@@ -49,8 +50,17 @@ findFlagPole(percentGain) =>
         [false, overallGain, bar_index - (redIndexOffset-1), bar_index]
 
 findBullFlagEntry() =>
-    // if previous candle was part of flag pole its not an entry
-    if close > high[1] // should be -- if close > high[1] --
+    // calculate lowest in flag
+    lowestInFlag = low
+    for idx = 0 to barsSinceFlagTop - 1
+        if low[idx] < lowestInFlag
+            lowestInFlag := low[idx]
+    if lowestInFlag < maxRetracementPoint
+        // if any candles from flag top to current candle drawdown 50% of the pole, dont even consider entering
+        log.info('no entry because of maxRetracementPoint')
+        false
+    // enter if current close is higher than previous high and were above vwap
+    else if close > high[1] and close > vwap
         label.new(bar_index, high, 'bull flag entry', yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
         true
     else
@@ -64,25 +74,27 @@ labelFlagTop(int flagTop, float gain) =>
 
 labelFlagBase(int flagTop, int flagBase, float gain) =>
     log.info('found flag base')
-    log.info(str.format('this flag base: {0}', flagBase))
-    log.info(str.format('this bar_index: {0}', bar_index))
     flagTopLabel = label.new(flagTop, high, str.format('flag top {0}',gain), yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
     flagBaseLabel = label.new(flagBase, low, 'flag base', yloc=yloc.belowbar, style=label.style_arrowup, color=color.green, textcolor=color.white)
-    log.info(str.format('barsSinceFlagTop: {0}', barsSinceFlagTop))
+
+calculateMaxRetracementPoint(int flagTop, int flagBase) =>
+    // finde the diff between flag base and top
+    diff = close[flagTop] - open[flagBase]
+
+    close[flagTop] - ((retracementPercentage/100) * diff)
 
 // if candle is now red stop looking for pole and look for entry
 if (close < open and flagBaseFound and lookForEntry == false)
     lookForEntry := true
-    log.info('lookForEntry should be true')
     
 // if not looking for entry, start looking for flag
 if (lookForEntry == false)
-    log.info('finding pole')
     [foundPole, gain, flagBase, flagTop] = findFlagPole(percentGain = targetPercentage)
     if (foundPole)
         //if a flag base was already found move flag top labels
         if (flagBaseFound)
             labelFlagTop(flagTop, gain)
+            maxRetracementPoint := calculateMaxRetracementPoint(flagTop, flagBase)
         // if a base was not found, we now have one, set label for it
         else
             labelFlagBase(flagTop, flagBase, gain)
@@ -90,17 +102,53 @@ if (lookForEntry == false)
 
 // flag found, look for entry
 else if (flagBaseFound and lookForEntry and entryFound == false)
-    log.info('finding entry')
     barsSinceFlagTop := barsSinceFlagTop + 1
     //wait for dip after flag base
-    if (barsSinceFlagTop >= 1 and barsSinceFlagTop < 8)
+    if (barsSinceFlagTop >= 1 and barsSinceFlagTop < maxFlagLength)
         // bullflag found already, now find entry
         entryFound := findBullFlagEntry()
-        log.info(str.format('entry found: {0}', entryFound))
+        if (entryFound)
+            strategy.entry("Long Entry", strategy.long)
     // entry found or took too long, reset and look for next flag
-    if (barsSinceFlagTop >= 8 or entryFound)
-        log.info('resetting and looking for flag')
+    if (barsSinceFlagTop >= maxFlagLength or entryFound)
         flagBaseFound := false
         entryFound := false
         lookForEntry := false
         barsSinceFlagTop := 0
+        maxRetracementPoint := 0.0
+
+// calculate trailing stop loss price
+trail_percent = 0.08
+long_tsl = close * (1 - trail_percent)
+
+// check and update the stop loss depending on price movement
+long_stop_price = 0.0
+long_stop_price := strategy.position_size > 0 ? math.max(long_tsl, long_stop_price[1]) : 0
+
+//place the exit order
+if strategy.position_size > 0
+    // close at either trailing stop or below vwap, whichever is first.
+    highest_stop_level = long_stop_price > vwap ? long_stop_price : vwap
+    strategy.exit("Long Entry", stop=highest_stop_level)
+
+// plot the TSL levels
+plot(series=strategy.position_size > 0 ? long_stop_price : na, color=#feae00, style=plot.style_line, linewidth=3)
+
+
+// plotshape(
+//  result,
+//  title='entry',
+//  location =location.belowbar, 
+//  color=color.green, style=shape.triangleup, 
+//  text='flag base', 
+//  textcolor=color.white)
+
+// longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+// if (longCondition)
+//     strategy.entry("My Long Entry Id", strategy.long)
+
+// shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+// if (shortCondition)
+//     strategy.entry("My Short Entry Id", strategy.short)
+
+plot(vwap)
