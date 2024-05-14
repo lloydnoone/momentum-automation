@@ -5,7 +5,7 @@
 strategy("Momentum strategy", 
  overlay=true, 
  process_orders_on_close=true, 
- initial_capital=50000, 
+ initial_capital=1000,
  default_qty_type=strategy.percent_of_equity, 
  default_qty_value=90, 
  commission_type=strategy.commission.cash_per_contract, 
@@ -21,6 +21,7 @@ var float retracementPercentage = 50.0
 var float maxRetracementPoint = 0.0
 var int maxFlagLength = 8
 var float trailPercent = 0.05
+var bool exceededMaxRetracement = false
 
 vwap = ta.vwap(open)
 
@@ -59,17 +60,8 @@ findFlagPole(percentGain) =>
         [false, overallGain, bar_index - (redIndexOffset-1)]
 
 findBullFlagEntry() =>
-    // calculate lowest in flag
-    lowestInFlag = low
-    for idx = 0 to barsSinceFlagTop - 1
-        if low[idx] < lowestInFlag
-            lowestInFlag := low[idx]
-    if lowestInFlag < maxRetracementPoint
-        // if any candles from flag top to current candle drawdown 50% of the pole, dont even consider entering
-        log.info('no entry because of maxRetracementPoint')
-        false
-    // enter if current close is higher than previous high and were above vwap
-    else if close > high[1] and close > vwap
+    // enter if current close is higher than previous high and we're above vwap
+    if close > high[1] and close > vwap
         label.new(bar_index, high, 'bull flag entry', yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
         true
     else
@@ -90,39 +82,56 @@ calculateMaxRetracementPoint(int flagBase) =>
     // return retracement point
     high - ((retracementPercentage/100) * diff)
 
-// if candle is now red stop looking for pole and look for entry
-if (close < open and flagBaseFound and lookForEntry == false)
-    lookForEntry := true
-    
-// if not looking for entry, start looking for flag
-if (lookForEntry == false)
-    [foundPole, gain, flagBase] = findFlagPole(percentGain = targetPercentage)
-    if (foundPole)
-        maxRetracementPoint := calculateMaxRetracementPoint(flagBase)
-        //if a flag base was already found move flag top labels
-        if (flagBaseFound)
-            labelFlagTop(gain)
-        // if a base was not found, we now have one, set label for it
-        else
-            labelFlagBase(flagBase, gain)
-            flagBaseFound := true
+checkMaxRetracement() =>
+    // calculate lowest in flag
+    lowestInFlag = low
+    for idx = 0 to barsSinceFlagTop - 1
+        if low[idx] < lowestInFlag
+            lowestInFlag := low[idx]
+    if lowestInFlag < maxRetracementPoint
+        // if any candles from flag top to current candle drawdown 50% of the pole, dont even consider entering
+        log.info('no entry because of maxRetracementPoint')
+        true
+    else
+        false
 
-// flag found, look for entry
-else if (flagBaseFound and lookForEntry and entryFound == false)
-    barsSinceFlagTop := barsSinceFlagTop + 1
-    //wait for dip after flag base
-    if (barsSinceFlagTop >= 1 and barsSinceFlagTop < maxFlagLength)
-        // bullflag found already, now find entry
-        entryFound := findBullFlagEntry()
-        if (entryFound)
-            strategy.entry("Long Entry", strategy.long)
-    // entry found or took too long, reset and look for next flag
-    if (barsSinceFlagTop >= maxFlagLength or entryFound)
-        flagBaseFound := false
-        entryFound := false
-        lookForEntry := false
-        barsSinceFlagTop := 0
-        maxRetracementPoint := 0.0
+if strategy.position_size == 0
+    // if candle is now red stop looking for pole and look for entry
+    if (close < open and flagBaseFound and lookForEntry == false)
+        lookForEntry := true
+        
+    // if not looking for entry, start looking for flag
+    if (lookForEntry == false)
+        [foundPole, gain, flagBase] = findFlagPole(percentGain = targetPercentage)
+        if (foundPole)
+            maxRetracementPoint := calculateMaxRetracementPoint(flagBase)
+            //if a flag base was already found move flag top labels
+            if (flagBaseFound)
+                labelFlagTop(gain)
+            // if a base was not found, we now have one, set label for it
+            else
+                labelFlagBase(flagBase, gain)
+                flagBaseFound := true
+
+    // flag found, look for entry
+    else if (flagBaseFound and lookForEntry and entryFound == false)
+        barsSinceFlagTop := barsSinceFlagTop + 1
+        //wait for dip after flag base
+        if (barsSinceFlagTop >= 1 and barsSinceFlagTop < maxFlagLength)
+            exceededMaxRetracement := checkMaxRetracement()
+            if exceededMaxRetracement == false
+                // bullflag found already, now find entry
+                entryFound := findBullFlagEntry()
+                if (entryFound)
+                    strategy.entry("Long Entry", strategy.long)
+        // entry found or took too long, reset and look for next flag
+        if (barsSinceFlagTop >= maxFlagLength or entryFound or exceededMaxRetracement)
+            flagBaseFound := false
+            entryFound := false
+            lookForEntry := false
+            barsSinceFlagTop := 0
+            maxRetracementPoint := 0.0
+            exceededMaxRetracement := false
 
 // calculate trailing stop loss price
 long_tsl = close * (1 - trailPercent)
