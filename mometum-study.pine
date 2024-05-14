@@ -2,16 +2,25 @@
 // © Spoonobi
 
 //@version=5
-strategy("Momentum strategy", overlay=true, process_orders_on_close=true, initial_capital=50000, default_qty_type=strategy.percent_of_equity, default_qty_value=90, commission_type=strategy.commission.cash_per_contract, commission_value=0.005 )
+strategy("Momentum strategy", 
+ overlay=true, 
+ process_orders_on_close=true, 
+ initial_capital=50000, 
+ default_qty_type=strategy.percent_of_equity, 
+ default_qty_value=90, 
+ commission_type=strategy.commission.cash_per_contract, 
+ commission_value=0.005
+ )
 
 var bool flagBaseFound = false
 var bool entryFound = false
 var bool lookForEntry = false
 var int barsSinceFlagTop = 0
 var float targetPercentage = 6.0
-var float retracementPercentage = 40.0
+var float retracementPercentage = 50.0
 var float maxRetracementPoint = 0.0
 var int maxFlagLength = 8
+var float trailPercent = 0.05
 
 vwap = ta.vwap(open)
 
@@ -43,11 +52,11 @@ findFlagPole(percentGain) =>
 
         // return result [foundPole, gain, flagBase, flagTop]
         if (overallGain >= tenPercent)
-            [true, overallGain, bar_index - (redIndexOffset-1), bar_index]
+            [true, overallGain, bar_index - (redIndexOffset-1)]
         else
-            [false, overallGain, bar_index - (redIndexOffset-1), bar_index]
+            [false, overallGain, bar_index - (redIndexOffset-1)]
     else // current is red candle
-        [false, overallGain, bar_index - (redIndexOffset-1), bar_index]
+        [false, overallGain, bar_index - (redIndexOffset-1)]
 
 findBullFlagEntry() =>
     // calculate lowest in flag
@@ -66,24 +75,20 @@ findBullFlagEntry() =>
     else
         false
 
-labelFlagTop(int flagTop, float gain) =>
+labelFlagTop(float gain) =>
     flagTopLabel = array.get(label.all, 0)
-    label.set_xy(flagTopLabel, flagTop, high)
+    label.set_xy(flagTopLabel, bar_index, high)
     label.set_text(flagTopLabel, str.format('flag top {0}',gain))
 
-labelFlagBase(int flagTop, int flagBase, float gain) =>
-    flagTopLabel = label.new(flagTop, high, str.format('flag top {0}',gain), yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
+labelFlagBase(int flagBase, float gain) =>
+    flagTopLabel = label.new(bar_index, high, str.format('flag top {0}',gain), yloc=yloc.abovebar, style=label.style_arrowdown, color=color.green, textcolor=color.white)
     flagBaseLabel = label.new(flagBase, low, 'flag base', yloc=yloc.belowbar, style=label.style_arrowup, color=color.green, textcolor=color.white)
 
-calculateMaxRetracementPoint(int flagTop, int flagBase) =>
+calculateMaxRetracementPoint(int flagBase) =>
     // find the diff between flag base and top
-    log.info('flagTop: {0}', high[flagTop])
-    log.info('flagBase: {0}', low[flagBase])
-    diff = high[flagTop] - low[flagBase]
-    log.info('diff: {0}', diff)
+    diff = high - low[bar_index - flagBase]
     // return retracement point
-    log.info('retracement in calc: {0}', retracementPercentage/100)
-    high[flagTop] - ((retracementPercentage/100) * diff)
+    high - ((retracementPercentage/100) * diff)
 
 // if candle is now red stop looking for pole and look for entry
 if (close < open and flagBaseFound and lookForEntry == false)
@@ -91,16 +96,15 @@ if (close < open and flagBaseFound and lookForEntry == false)
     
 // if not looking for entry, start looking for flag
 if (lookForEntry == false)
-    [foundPole, gain, flagBase, flagTop] = findFlagPole(percentGain = targetPercentage)
+    [foundPole, gain, flagBase] = findFlagPole(percentGain = targetPercentage)
     if (foundPole)
+        maxRetracementPoint := calculateMaxRetracementPoint(flagBase)
         //if a flag base was already found move flag top labels
         if (flagBaseFound)
-            labelFlagTop(flagTop, gain)
-            maxRetracementPoint := calculateMaxRetracementPoint(flagTop, flagBase)
-            log.info('maxRetracementPoint: {0}', maxRetracementPoint)
+            labelFlagTop(gain)
         // if a base was not found, we now have one, set label for it
         else
-            labelFlagBase(flagTop, flagBase, gain)
+            labelFlagBase(flagBase, gain)
             flagBaseFound := true
 
 // flag found, look for entry
@@ -121,8 +125,7 @@ else if (flagBaseFound and lookForEntry and entryFound == false)
         maxRetracementPoint := 0.0
 
 // calculate trailing stop loss price
-trail_percent = 0.08
-long_tsl = close * (1 - trail_percent)
+long_tsl = close * (1 - trailPercent)
 
 // check and update the stop loss depending on price movement
 long_stop_price = 0.0
