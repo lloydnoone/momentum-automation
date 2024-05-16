@@ -18,7 +18,7 @@ var bool entryFound = false
 var bool lookForEntry = false
 var int barsSinceFlagTop = 0
 var float targetPercentage = 2.0
-var float retracementPercentage = 50.0
+var float retracementPercentage = 40.0
 var float maxRetracementPoint = 0.0
 var int maxFlagLength = 8
 var float trailPercent = 0.08
@@ -101,10 +101,7 @@ isVolumeGood() =>
     // make sure the candle after most recent red bar had higher volume
     if barsSinceRed > 0
         redVolume = volume[barsSinceRed]
-        greenVolume = volume[barsSinceRed + 1]
-        log.info('barsSinceRed: {0}', barsSinceRed)
-        log.info('redVolume: {0}', redVolume)
-        log.info('greenVolume: {0}', greenVolume)
+        greenVolume = volume[barsSinceRed - 1]
 
         // return bool
         greenVolume > redVolume
