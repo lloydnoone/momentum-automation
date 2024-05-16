@@ -30,36 +30,27 @@ barsSinceRed = ta.barssince(close < open)
 findFlagPole(percentGain) =>
     float overallGain = 0.0
     float redClose = 0.0
-    int redIndexOffset = 0
-    bool redCandleFound = false
     // if the candle is green, get previous run of green candles
     if (close > open)
-        // get all previous green candles
-        idx = 1
-        while (redCandleFound == false)
-            // if previous candle is green
-            if close[idx] > open[idx]
-                //overallGain := overallGain + (open[idx] + close[idx - 1])
-                idx += 1
-            else
-                // get close of this red candle
-                redClose := close[idx]
-                redIndexOffset := idx
-                // red candle found, calc gain using prev candle to current
-                overallGain := close - open[redIndexOffset - 1]
-                // exit loop
-                redCandleFound := true
+        // get close of most recent red candle
+        redClose := close[barsSinceRed]
+
+        // red candle found, calc gain using candle after it to current
+        overallGain := close - open[barsSinceRed - 1]
     
         // calc 10 percent
         tenPercent = (redClose / 100) * percentGain
 
+        // get flag base index
+        flagBase = bar_index - (barsSinceRed-1)
+
         // return result [foundPole, gain, flagBase, flagTop]
         if (overallGain >= tenPercent)
-            [true, overallGain, bar_index - (redIndexOffset-1)]
+            [true, overallGain, flagBase]
         else
-            [false, overallGain, bar_index - (redIndexOffset-1)]
+            [false, overallGain, flagBase]
     else // current is red candle
-        [false, overallGain, bar_index - (redIndexOffset-1)]
+        [false, overallGain, 0]
 
 findBullFlagEntry() =>
     // enter if current close is higher than previous high and we're above vwap
