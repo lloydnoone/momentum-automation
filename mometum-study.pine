@@ -27,6 +27,7 @@ var float stopLevel = 0.0
 
 vwap = ta.vwap(open)
 barsSinceRed = ta.barssince(close < open)
+closeChange = ta.change(close)
 
 findFlagPole(percentGain) =>
     float overallGain = 0.0
@@ -110,7 +111,7 @@ getBottomOfFlag() =>
     bottom
 
 calculateStopLoss(float prevStopLoss) =>
-    movement = close > close[1] ? close - close[1] : 0
+    movement = closeChange > 0 ? closeChange : 0
     log.info('movement: {0}', movement)
     log.info('tsl {0}', prevStopLoss + movement)
     prevStopLoss + movement
@@ -144,6 +145,7 @@ if strategy.position_size == 0
             if exceededMaxRetracement == false
                 if (isVolumeGood() and findBullFlagEntry())
                     bottomOfFlag := getBottomOfFlag()
+                    stopLevel := bottomOfFlag
                     strategy.entry("Long Entry", strategy.long)
         // entry found or took too long, reset and look for next flag
         if (barsSinceFlagTop >= maxFlagLength or strategy.position_size > 0 or exceededMaxRetracement)
@@ -153,6 +155,7 @@ if strategy.position_size == 0
             maxRetracementPoint := 0.0
             exceededMaxRetracement := false
             bottomOfFlag := 0.0
+            stopLevel := 0.0
 
 // calculate trailing stop loss price
 //long_tsl = close * (1 - trailPercent)
@@ -163,8 +166,6 @@ if strategy.position_size == 0
 
 //place the exit order
 if strategy.position_size > 0
-    // reset current stop to zero to recalculate
-    stopLevel := 0.0
 
     // move trailing stop to either bottomOfFlag or + pricemovement
     tsl = math.max(bottomOfFlag, calculateStopLoss(stopLevel[1])) 
