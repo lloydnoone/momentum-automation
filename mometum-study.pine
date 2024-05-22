@@ -14,15 +14,16 @@ strategy("Momentum strategy",
  )
 
 var bool flagBaseFound = false
-var bool entryFound = false
 var bool lookForEntry = false
 var int barsSinceFlagTop = 0
-var float targetPercentage = 2.0
+var float targetPercentage = 7.0
 var float retracementPercentage = 40.0
 var float maxRetracementPoint = 0.0
 var int maxFlagLength = 8
 var float trailPercent = 0.08
 var bool exceededMaxRetracement = false
+var float bottomOfFlag = 0.0
+var float stopLevel = 0.0
 
 vwap = ta.vwap(open)
 barsSinceRed = ta.barssince(close < open)
@@ -99,6 +100,21 @@ isVolumeGood() =>
     else
         false
 
+getBottomOfFlag() =>
+    bottom = 999999.999
+    for i = 0 to barsSinceFlagTop - 1
+        bottom := low[i] < bottom ? low[i] : bottom
+    // get lowest bar in flag
+    log.info('bottom: {0}', bottom)
+    // return flag bottom
+    bottom
+
+calculateStopLoss(float prevStopLoss) =>
+    movement = close > close[1] ? close - close[1] : 0
+    log.info('movement: {0}', movement)
+    log.info('tsl {0}', prevStopLoss + movement)
+    prevStopLoss + movement
+
 if strategy.position_size == 0
     // if candle is now red stop looking for pole and look for entry
     if (close < open and flagBaseFound and lookForEntry == false)
@@ -118,45 +134,48 @@ if strategy.position_size == 0
                 flagBaseFound := true
 
     // flag found, look for entry
-    else if (flagBaseFound and lookForEntry and entryFound == false)
+    else if (flagBaseFound and lookForEntry and strategy.position_size <= 0)
         barsSinceFlagTop := barsSinceFlagTop + 1
-        //wait for dip after flag base
-        if (barsSinceFlagTop >= 1 and barsSinceFlagTop < maxFlagLength)
+        //wait for dip after flag base to enter
+        if (barsSinceFlagTop > 1 and barsSinceFlagTop < maxFlagLength)
+            log.info('barsSinceFlagTop: {0}', barsSinceFlagTop)
+            // bullflag found already, now find entry
             exceededMaxRetracement := checkMaxRetracement()
             if exceededMaxRetracement == false
-                // bullflag found already, now find entry
-                log.info('isVolumeGood: {0}', isVolumeGood())
-                entryFound := isVolumeGood() and findBullFlagEntry()
-                if (entryFound)
+                if (isVolumeGood() and findBullFlagEntry())
+                    bottomOfFlag := getBottomOfFlag()
                     strategy.entry("Long Entry", strategy.long)
         // entry found or took too long, reset and look for next flag
-        if (barsSinceFlagTop >= maxFlagLength or entryFound or exceededMaxRetracement)
+        if (barsSinceFlagTop >= maxFlagLength or strategy.position_size > 0 or exceededMaxRetracement)
             flagBaseFound := false
-            entryFound := false
             lookForEntry := false
             barsSinceFlagTop := 0
             maxRetracementPoint := 0.0
             exceededMaxRetracement := false
+            bottomOfFlag := 0.0
 
 // calculate trailing stop loss price
-long_tsl = close * (1 - trailPercent)
+//long_tsl = close * (1 - trailPercent)
 
 // check and update the stop loss depending on price movement
-long_stop_price = 0.0
-long_stop_price := strategy.position_size > 0 ? math.max(long_tsl, long_stop_price[1]) : 0
+// long_stop_price = 0.0
+// long_stop_price := strategy.position_size > 0 ? math.max(long_tsl, long_stop_price[1]) : 0
 
 //place the exit order
 if strategy.position_size > 0
-    // close if candle goes red 20 cents
-    if close <= open - 0.20
-        strategy.close("Long Entry")
-    else
-        // close at either trailing stop or below vwap, whichever is first.
-        highest_stop_level = long_stop_price > vwap ? long_stop_price : vwap
-        strategy.exit("Long Entry", stop=highest_stop_level)
+    // reset current stop to zero to recalculate
+    stopLevel := 0.0
+
+    // move trailing stop to either bottomOfFlag or + pricemovement
+    tsl = math.max(bottomOfFlag, calculateStopLoss(stopLevel[1])) 
+    // close at either trailing stop or below vwap, whichever is first.
+    stopLevel := tsl > vwap ? tsl : vwap
+    strategy.exit("Long Entry", stop=stopLevel)
 
 // plot the TSL levels
-plot(series=strategy.position_size > 0 ? long_stop_price : na, color=#feae00, style=plot.style_line, linewidth=3)
+plot(series=strategy.position_size > 0 ? stopLevel : na, color=#feae00, style=plot.style_line, linewidth=3)
+plot(series=strategy.position_size > 0 ? bottomOfFlag : na, color=#fe0000, style=plot.style_line, linewidth=3)
+
 
 
 // plotshape(
